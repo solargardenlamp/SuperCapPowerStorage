@@ -4,13 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 Real-Time Data Monitor</title>
-    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Firebase SDKs -->
-    <!-- Using compatibility version for simplicity -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
-    <!-- Load Chart.js for graphing -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
     <style>
         /* Custom font and base styling */
@@ -59,7 +55,6 @@
             <p class="mt-2 text-lg text-gray-400">Real-Time Data from ESP32 via Firebase</p>
         </header>
 
-        <!-- Status and Last Updated Time -->
         <div id="status" class="text-center mb-6 p-4 rounded-lg bg-gray-800 shadow-xl">
             <p class="text-sm font-medium text-gray-400">
                 Connection Status: <span id="connection-status" class="text-green-400 font-bold">Connecting...</span>
@@ -69,10 +64,8 @@
             </p>
         </div>
 
-        <!-- Data Grid (Display Readings) - Grouped by Component Row -->
         <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Latest Component Readings</h2>
         
-        <!-- Metric Header Row -->
         <div class="grid grid-cols-3 gap-6 mb-4 text-center text-sm font-bold text-indigo-400">
             <div class="p-3 bg-gray-800 rounded-md">Voltage (V)</div>
             <div class="p-3 bg-gray-800 rounded-md">Current (mA)</div>
@@ -80,8 +73,6 @@
         </div>
 
         <div id="data-grid" class="data-grid-container mb-12">
-            <!-- Cards will be injected directly here by the script -->
-            <!-- Loading Spinner -->
             <div id="loading-spinner" class="col-span-3 text-center py-10">
                 <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -91,23 +82,19 @@
             </div>
         </div>
 
-        <!-- Graph Section - UPDATED TO STACK VERTICALLY -->
         <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Historical Trends (Last ~30 Points)</h2>
         <div class="grid grid-cols-1 gap-8">
             
-            <!-- Current Chart (Slot 1) -->
-            <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
-                <h3 class="text-lg font-semibold text-indigo-400 mb-3">Current Trends (mA)</h3>
-                <canvas id="currentChart"></canvas>
-            </div>
-            
-            <!-- Voltage Chart (Slot 2) -->
             <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
                 <h3 class="text-lg font-semibold text-indigo-400 mb-3">Voltage Trends (V)</h3>
                 <canvas id="voltageChart"></canvas>
             </div>
 
-            <!-- Power Chart (Slot 3) -->
+            <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
+                <h3 class="text-lg font-semibold text-indigo-400 mb-3">Current Trends (mA)</h3>
+                <canvas id="currentChart"></canvas>
+            </div>
+            
             <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
                 <h3 class="text-lg font-semibold text-indigo-400 mb-3">Power Trends (mW)</h3>
                 <canvas id="powerChart"></canvas>
@@ -587,7 +574,7 @@
                 console.warn(`Data snapshot at '${DATA_PATH}' is null, empty, or not an array structure. Waiting for ESP32 data...`);
                 // Only show this message if we definitely received something but it wasn't the expected array format.
                 if (fullData) {
-                     dataGrid.innerHTML = `<p class="col-span-3 text-center text-yellow-500 py-10">Data structure is incorrect. Expected arrays of size ${ESP32_HISTORY_SIZE}. Check ESP32 code and Firebase path.</p>`;
+                    dataGrid.innerHTML = `<p class="col-span-3 text-center text-yellow-500 py-10">Data structure is incorrect. Expected arrays of size ${ESP32_HISTORY_SIZE}. Check ESP32 code and Firebase path.</p>`;
                 }
             }
         }, (error) => {
