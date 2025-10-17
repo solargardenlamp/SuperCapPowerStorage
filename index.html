@@ -7,6 +7,7 @@
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load Firebase SDKs -->
+    <!-- Using compatibility version for simplicity -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
     <!-- Load Chart.js for graphing -->
@@ -69,7 +70,7 @@
         </div>
 
         <!-- Data Grid (Display Readings) - Grouped by Component Row -->
-        <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Component Readings</h2>
+        <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Latest Component Readings</h2>
         
         <!-- Metric Header Row -->
         <div class="grid grid-cols-3 gap-6 mb-4 text-center text-sm font-bold text-indigo-400">
@@ -86,12 +87,12 @@
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p class="mt-3 text-gray-400">Loading initial data...</p>
+                <p class="mt-3 text-gray-400">Loading initial historical data...</p>
             </div>
         </div>
 
         <!-- Graph Section - UPDATED TO STACK VERTICALLY -->
-        <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Real-Time Graphs</h2>
+        <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Historical Trends (Last ~30 Points)</h2>
         <div class="grid grid-cols-1 gap-8">
             
             <!-- Current Chart (Slot 1) -->
@@ -116,6 +117,7 @@
 
     <script>
         // --- Firebase Configuration ---
+        // NOTE: Replace with your actual Firebase config if deploying externally
         const firebaseConfig = {
             apiKey: "AIzaSyCMR8Dl1_z8Ny2afjjbXWdd48TSvYgHgfo",
             databaseURL: "https://solargardenlampmonitor-default-rtdb.asia-southeast1.firebasedatabase.app/",
@@ -126,7 +128,15 @@
 
         // Global Chart Variables and Data History
         let voltageChart, currentChart, powerChart;
-        const CHART_MAX_POINTS = 30; // Max points to display before shifting the graph
+        // Max points to display before shifting the graph
+        const CHART_MAX_POINTS = 30; 
+        // Size of the historical array sent by the ESP32
+        const ESP32_HISTORY_SIZE = 10; 
+        
+        // Global object to store the *single* newest data point (for card display)
+        let latestDataPoint = {}; 
+
+        // Data structure to hold the entire history for the charts (up to CHART_MAX_POINTS)
         const chartDataHistory = {
             labels: [],
             capacitorVoltage: [],
@@ -178,7 +188,7 @@
                 unit = 'mA'; 
                 icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c1.333-3.333 4-5 8-5 1 0 2 1 2 2 0 4-3 6-8 8s-8 4-8 8c0 1 1 2 2 2 4 0 6.667-1.667 8-5"></path></svg>`;
             } 
-
+            
             // Update icons based on component
             if (key.toLowerCase().includes('solar panel')) {
                 icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>`;
@@ -214,7 +224,7 @@
                 },
                 y: {
                     title: { display: true, text: unit, color: '#9ca3af' },
-                    beginAtZero: beginAtZero, // Dynamic scaling control
+                    beginAtZero: beginAtZero, 
                     grid: { color: 'rgba(75, 85, 99, 0.2)' },
                     ticks: { color: '#d1d5db' },
                 }
@@ -228,7 +238,7 @@
             Chart.defaults.color = '#e5e7eb'; 
             Chart.defaults.borderColor = 'rgba(75, 85, 99, 0.5)';
 
-            // 1. Voltage Chart (V) - Dynamic Scale
+            // 1. Voltage Chart (V)
             voltageChart = new Chart(document.getElementById('voltageChart'), {
                 type: 'line',
                 data: {
@@ -242,7 +252,7 @@
                 options: chartOptions('Volts (V)', false)
             });
 
-            // 2. Current Chart (mA) - Dynamic Scale
+            // 2. Current Chart (mA)
             currentChart = new Chart(document.getElementById('currentChart'), {
                 type: 'line',
                 data: {
@@ -256,7 +266,7 @@
                 options: chartOptions('milliAmperes (mA)', false)
             });
 
-            // 3. Power Chart (mW) - Begin at Zero. NOW INCLUDES MPPT POWER
+            // 3. Power Chart (mW)
             powerChart = new Chart(document.getElementById('powerChart'), {
                 type: 'line',
                 data: {
@@ -274,55 +284,116 @@
 
         /**
          * Pushes new data to the history and updates all charts.
-         * @param {object} data The current sensor data object.
+         * Handles both initial population (10 points) and subsequent updates (1 point).
+         * @param {object} data The current sensor data object (an object of 10-element arrays).
          */
         function updateCharts(data) {
-            const now = new Date();
-            const timeLabel = now.toLocaleTimeString();
+            
+            const latestReading = {};
+            const isInitialLoad = chartDataHistory.labels.length === 0;
 
-            // 1. Add time label (and manage history length)
-            chartDataHistory.labels.push(timeLabel);
-            if (chartDataHistory.labels.length > CHART_MAX_POINTS) {
-                chartDataHistory.labels.shift();
+            const allKeys = Object.keys(data);
+            const relevantKeys = allKeys.filter(key => key.includes('Voltage') || key.includes('Current'));
+            
+            // Helper function to process all 10 points for the initial load
+            const processInitialLoad = () => {
+                console.log("Initial load: processing 10 data points.");
+                
+                // Generate 10 placeholder labels for the initial load
+                const now = new Date();
+                const initialLabels = Array.from({ length: ESP32_HISTORY_SIZE }, (_, i) => {
+                    // Estimate time stamps roughly 10 seconds apart for initial history display
+                    const tempDate = new Date(now.getTime() - (ESP32_HISTORY_SIZE - 1 - i) * 10000); 
+                    return tempDate.toLocaleTimeString();
+                });
+                chartDataHistory.labels = initialLabels;
+
+                // Process all 10 historical points
+                for (let i = 0; i < ESP32_HISTORY_SIZE; i++) {
+                    const V = key => parseFloat(data[`${key} Voltage`][i] || 0);
+                    const I = key => parseFloat(data[`${key} Current`][i] || 0);
+
+                    // Add to Voltage history
+                    chartDataHistory.capacitorVoltage.push(V('Capacitor'));
+                    chartDataHistory.mpptVoltage.push(V('MPPT'));
+                    chartDataHistory.solarPanelVoltage.push(V('Solar Panel'));
+
+                    // Add to Current history
+                    chartDataHistory.capacitorCurrent.push(I('Capacitor'));
+                    chartDataHistory.mpptCurrent.push(I('MPPT'));
+                    chartDataHistory.solarPanelCurrent.push(I('Solar Panel'));
+
+                    // Calculate and add Power history (V * I = mW)
+                    chartDataHistory.solarPanelPower.push(V('Solar Panel') * I('Solar Panel'));
+                    chartDataHistory.mpptPower.push(V('MPPT') * I('MPPT'));
+                    chartDataHistory.capacitorPower.push(V('Capacitor') * I('Capacitor'));
+                }
+
+                // Save the last reading for display cards
+                relevantKeys.forEach(key => {
+                    latestReading[key] = data[key][ESP32_HISTORY_SIZE - 1];
+                });
+            };
+
+            // Helper function to process a single point for subsequent updates
+            const processSingleUpdate = () => {
+                console.log("Subsequent update: processing 1 data point.");
+                const now = new Date();
+                const timeLabel = now.toLocaleTimeString();
+
+                // 1. Get the last element (newest) from the Firebase arrays
+                const V = key => parseFloat(data[`${key} Voltage`][ESP32_HISTORY_SIZE - 1] || 0);
+                const I = key => parseFloat(data[`${key} Current`][ESP32_HISTORY_SIZE - 1] || 0);
+
+                // 2. Add time label and shift array if needed
+                chartDataHistory.labels.push(timeLabel);
+
+                // 3. Add Voltage 
+                chartDataHistory.capacitorVoltage.push(V('Capacitor'));
+                chartDataHistory.mpptVoltage.push(V('MPPT'));
+                chartDataHistory.solarPanelVoltage.push(V('Solar Panel'));
+
+                // 4. Add Current 
+                chartDataHistory.capacitorCurrent.push(I('Capacitor'));
+                chartDataHistory.mpptCurrent.push(I('MPPT'));
+                chartDataHistory.solarPanelCurrent.push(I('Solar Panel'));
+
+                // 5. Calculate Power
+                const solarPanelPower_mW = V('Solar Panel') * I('Solar Panel');
+                const capacitorPower_mW = V('Capacitor') * I('Capacitor');
+                const mpptPower_mW = V('MPPT') * I('MPPT');
+
+                chartDataHistory.solarPanelPower.push(solarPanelPower_mW);
+                chartDataHistory.capacitorPower.push(capacitorPower_mW);
+                chartDataHistory.mpptPower.push(mpptPower_mW);
+
+                // Shift all data arrays if over the max limit
+                [
+                    chartDataHistory.labels,
+                    chartDataHistory.capacitorVoltage, chartDataHistory.mpptVoltage, chartDataHistory.solarPanelVoltage,
+                    chartDataHistory.capacitorCurrent, chartDataHistory.mpptCurrent, chartDataHistory.solarPanelCurrent,
+                    chartDataHistory.solarPanelPower, chartDataHistory.capacitorPower, chartDataHistory.mpptPower
+                ].forEach(arr => {
+                    if (arr.length > CHART_MAX_POINTS) arr.shift();
+                });
+
+                // Save the latest reading for display cards
+                relevantKeys.forEach(key => {
+                    latestReading[key] = data[key][ESP32_HISTORY_SIZE - 1];
+                });
+            };
+
+            if (isInitialLoad) {
+                processInitialLoad();
+            } else {
+                processSingleUpdate();
             }
             
-            // 2. Add raw voltage and current data to history
-            const voltageKeys = ['Capacitor Voltage', 'MPPT Voltage', 'Solar Panel Voltage'];
-            const currentKeys = ['Capacitor Current', 'MPPT Current', 'Solar Panel Current'];
-            
-            voltageKeys.forEach(key => {
-                const chartKey = getFieldInfo(key).chartKey;
-                const value = parseFloat(data[key] || 0);
-                chartDataHistory[chartKey].push(value);
-                if (chartDataHistory[chartKey].length > CHART_MAX_POINTS) {
-                    chartDataHistory[chartKey].shift();
-                }
-            });
-
-            currentKeys.forEach(key => {
-                const chartKey = getFieldInfo(key).chartKey;
-                const value_mA = parseFloat(data[key] || 0); 
-                chartDataHistory[chartKey].push(value_mA); 
-                if (chartDataHistory[chartKey].length > CHART_MAX_POINTS) {
-                    chartDataHistory[chartKey].shift();
-                }
-            });
-
-            // 3. Calculate and add Power data to history (Power = V * I_mA = mW)
-            const solarPanelPower_mW = (parseFloat(data['Solar Panel Voltage'] || 0) * parseFloat(data['Solar Panel Current'] || 0));
-            const capacitorPower_mW = (parseFloat(data['Capacitor Voltage'] || 0) * parseFloat(data['Capacitor Current'] || 0));
-            const mpptPower_mW = (parseFloat(data['MPPT Voltage'] || 0) * parseFloat(data['MPPT Current'] || 0)); 
-
-            chartDataHistory.solarPanelPower.push(solarPanelPower_mW);
-            chartDataHistory.capacitorPower.push(capacitorPower_mW);
-            chartDataHistory.mpptPower.push(mpptPower_mW); 
-
-            if (chartDataHistory.solarPanelPower.length > CHART_MAX_POINTS) chartDataHistory.solarPanelPower.shift();
-            if (chartDataHistory.capacitorPower.length > CHART_MAX_POINTS) chartDataHistory.capacitorPower.shift();
-            if (chartDataHistory.mpptPower.length > CHART_MAX_POINTS) chartDataHistory.mpptPower.shift();
+            // Update the global latestDataPoint for card rendering
+            latestDataPoint = latestReading;
 
 
-            // 4. Update the charts - EXPLICITLY RE-ASSIGN ARRAYS BEFORE UPDATE
+            // 4. Update the charts - explicit re-assignment required for Chart.js reactivity
             if (voltageChart && currentChart && powerChart) {
                 
                 // --- Voltage Chart Re-assignment ---
@@ -346,9 +417,9 @@
                 powerChart.data.datasets[2].data = chartDataHistory.capacitorPower;
                 powerChart.update('none');
                 
-                console.log(`Charts updated successfully at ${timeLabel}. Data points: ${chartDataHistory.labels.length}`);
+                console.log(`Charts updated successfully. Data points: ${chartDataHistory.labels.length}`);
             } else {
-                console.warn("Chart objects are not fully initialized yet. Skipping update.");
+                console.warn("Chart objects are not fully initialized yet. Skipping chart update.");
             }
         }
 
@@ -401,11 +472,17 @@
 
 
         /**
-         * Renders the data grid based on the snapshot, using a row-based layout.
-         * @param {object} data The sensor data object.
+         * Renders the data grid based on the latest data point from the Firebase array.
+         * @param {object} fullData The sensor data object (object of 10-element arrays).
          */
-        function renderData(data) {
+        function renderData(fullData) {
             
+            // 1. Process the full historical data to update the global latestDataPoint and charts
+            updateCharts(fullData); 
+            
+            // The data we use for the cards is the latest value, stored in latestDataPoint
+            const data = latestDataPoint;
+
             // Clear the grid content
             dataGrid.innerHTML = ''; 
             
@@ -445,12 +522,12 @@
                     const powerKey = `${componentName} Power`;
                     const voltage = parseFloat(data[voltageKey] || 0);
                     const current = parseFloat(data[currentKey] || 0);
-                    const power = voltage * current; // V * mA = mW
+                    // Power is V * I_mA (mW)
+                    const power = voltage * current; 
                     
                     const powerInfo = { 
                         title: powerKey + (componentName === 'Capacitor' ? ' (Storage)' : ''), 
                         unit: 'mW', 
-                        // Reuse the component's main icon
                         icon: getFieldInfo(voltageKey).icon 
                     };
                     updateOrCreateCard(powerKey, power.toFixed(3), powerInfo);
@@ -475,8 +552,6 @@
             const now = new Date();
             lastUpdated.textContent = now.toLocaleTimeString() + ' on ' + now.toLocaleDateString();
 
-            // Update Graphs
-            updateCharts(data);
         }
 
         // --- Event Listeners and Initialization ---
@@ -503,14 +578,17 @@
             connectionStatus.classList.remove('text-yellow-500', 'text-red-500');
             connectionStatus.classList.add('text-green-400');
 
-            const data = snapshot.val();
-            if (data) {
+            const fullData = snapshot.val(); // This will be the object containing the 10-element arrays
+            if (fullData && Object.keys(fullData).length > 0 && Array.isArray(Object.values(fullData)[0])) {
                 document.getElementById('loading-spinner')?.remove(); 
-                renderData(data);
+                // Send the full data object of arrays to renderData
+                renderData(fullData);
             } else {
-                console.warn(`Data snapshot at '${DATA_PATH}' is null or empty.`);
-                document.getElementById('loading-spinner')?.remove(); 
-                dataGrid.innerHTML = `<p class="col-span-3 text-center text-gray-500 py-10">No data found at '${DATA_PATH}'. Check ESP32 connection and Firebase path.</p>`;
+                console.warn(`Data snapshot at '${DATA_PATH}' is null, empty, or not an array structure. Waiting for ESP32 data...`);
+                // Only show this message if we definitely received something but it wasn't the expected array format.
+                if (fullData) {
+                     dataGrid.innerHTML = `<p class="col-span-3 text-center text-yellow-500 py-10">Data structure is incorrect. Expected arrays of size ${ESP32_HISTORY_SIZE}. Check ESP32 code and Firebase path.</p>`;
+                }
             }
         }, (error) => {
             console.error("Firebase Read Failed:", error);
