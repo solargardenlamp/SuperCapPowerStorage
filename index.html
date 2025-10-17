@@ -4,11 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 Real-Time Data Monitor</title>
-    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
     <style>
         /* Custom font and base styling */
         body { font-family: 'Inter', sans-serif; }
@@ -27,13 +26,12 @@
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen p-4 sm:p-8">
 
-    <div class="max-w-4xl mx-auto">
+    <div class="max-w-6xl mx-auto">
         <header class="text-center mb-10">
             <h1 class="text-4xl sm:text-5xl font-extrabold text-indigo-400 tracking-tight">Solar Garden Lamp Monitor</h1>
             <p class="mt-2 text-lg text-gray-400">Real-Time Data from ESP32 via Firebase</p>
         </header>
 
-        <!-- Status and Last Updated Time -->
         <div id="status" class="text-center mb-6 p-4 rounded-lg bg-gray-800 shadow-xl">
             <p class="text-sm font-medium text-gray-400">
                 Connection Status: <span id="connection-status" class="text-green-400 font-bold">Connecting...</span>
@@ -43,10 +41,9 @@
             </p>
         </div>
 
-        <!-- Data Grid -->
-        <div id="data-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Data Cards will be injected here -->
-            <div id="loading-spinner" class="md:col-span-2 text-center py-10">
+        <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Current Readings</h2>
+        <div id="data-grid" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <div id="loading-spinner" class="md:col-span-3 text-center py-10">
                 <svg class="animate-spin h-8 w-8 text-indigo-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -54,19 +51,54 @@
                 <p class="mt-3 text-gray-400">Loading initial data...</p>
             </div>
         </div>
+
+        <h2 class="text-2xl font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">Real-Time Graphs</h2>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
+                <h3 class="text-lg font-semibold text-indigo-400 mb-3">Voltage Trends (V)</h3>
+                <canvas id="voltageChart"></canvas>
+            </div>
+            
+            <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
+                <h3 class="text-lg font-semibold text-indigo-400 mb-3">Current Trends (mA)</h3>
+                <canvas id="currentChart"></canvas>
+            </div>
+
+            <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
+                <h3 class="text-lg font-semibold text-indigo-400 mb-3">Power Trends (mW)</h3>
+                <canvas id="powerChart"></canvas>
+            </div>
+        </div>
     </div>
 
     <script>
         // --- Firebase Configuration ---
-        // IMPORTANT: Replace the values below with your actual credentials.
+        // IMPORTANT: Use your actual credentials.
         const firebaseConfig = {
             apiKey: "AIzaSyCMR8Dl1_z8Ny2afjjbXWdd48TSvYgHgfo",
             databaseURL: "https://solargardenlampmonitor-default-rtdb.asia-southeast1.firebasedatabase.app/",
         };
 
         // Path to the data node in your Firebase Realtime Database
-        const DATA_PATH = '/readings/powerdata';
+        // NOTE: The previous code assumed "data_from_esp32". Using the new suggested path:
+        const DATA_PATH = 'data_from_esp32'; 
 
+        // Global Chart Variables and Data History
+        let voltageChart, currentChart, powerChart;
+        const CHART_MAX_POINTS = 30; // Max points to display before shifting the graph
+        const chartDataHistory = {
+            labels: [],
+            capacitorVoltage: [],
+            mpptVoltage: [],
+            solarPanelVoltage: [],
+            capacitorCurrent: [],
+            mpptCurrent: [],
+            solarPanelCurrent: [],
+            // Calculated Power
+            solarPanelPower: [],
+            capacitorPower: []
+        };
+        
         // Initialize Firebase
         const app = firebase.initializeApp(firebaseConfig);
         const db = app.database();
@@ -77,53 +109,197 @@
         const connectionStatus = document.getElementById('connection-status');
         const lastUpdated = document.getElementById('last-updated');
 
+
+        // --- Utility Functions ---
+
         /**
-         * Converts a field name (e.g., "Capacitor Voltage") into a card title, 
-         * and assigns units and icons.
+         * Converts a field name into card info and returns the correct unit.
          * @param {string} key The raw data key.
-         * @returns {{title: string, unit: string, icon: string}}
+         * @returns {{title: string, unit: string, icon: string, chartGroup: string, chartKey: string}}
          */
         function getFieldInfo(key) {
-            let title = key.replace(/([A-Z])/g, ' $1').trim(); // Add space before capital letters
+            let title = key.replace(/([A-Z])/g, ' $1').trim();
             let unit = '';
-            let icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`; // Default Bolt icon
+            let chartGroup = '';
+            let icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>`;
 
             if (key.toLowerCase().includes('voltage')) {
                 unit = 'V';
-                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l2.365 3.155a1 1 0 001.27 0L15 6v13"></path></svg>`; // Lightning
+                chartGroup = 'voltage';
+                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l2.365 3.155a1 1 0 001.27 0L15 6v13"></path></svg>`;
             } else if (key.toLowerCase().includes('current')) {
-                unit = 'A';
-                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c1.333-3.333 4-5 8-5 1 0 2 1 2 2 0 4-3 6-8 8s-8 4-8 8c0 1 1 2 2 2 4 0 6.667-1.667 8-5"></path></svg>`; // Circuit
-            } else if (key.toLowerCase().includes('panel')) {
-                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>`; // Sun
-            } else if (key.toLowerCase().includes('mppt')) {
-                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>`; // Chip
-            } else if (key.toLowerCase().includes('capacitor')) {
-                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9h-3a4 4 0 01-4-4V7a4 4 0 00-4-4H3"></path></svg>`; // Battery/Storage
+                // Display in mA, but data is read as A
+                unit = 'mA'; 
+                chartGroup = 'current';
+                icon = `<svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c1.333-3.333 4-5 8-5 1 0 2 1 2 2 0 4-3 6-8 8s-8 4-8 8c0 1 1 2 2 2 4 0 6.667-1.667 8-5"></path></svg>`;
+            } 
+            
+            return { title, unit, icon, chartGroup, chartKey: key.charAt(0).toLowerCase() + key.slice(1).replace(/\s+/g, '') };
+        }
+
+
+        // --- Chart Functions ---
+
+        /**
+         * Initializes all three Chart.js instances.
+         */
+        function initializeCharts() {
+            Chart.defaults.color = '#e5e7eb'; // Default text color (gray-200)
+            Chart.defaults.borderColor = 'rgba(75, 85, 99, 0.5)'; // Default border color (gray-600)
+
+            const chartOptions = (title, unit) => ({
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { labels: { color: '#a5b4fc', boxWidth: 10 } },
+                    title: { display: false },
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Time', color: '#9ca3af' },
+                        grid: { color: 'rgba(75, 85, 99, 0.2)' },
+                        ticks: { maxRotation: 0, minRotation: 0, autoSkip: true, maxTicksLimit: 10, color: '#d1d5db' },
+                    },
+                    y: {
+                        title: { display: true, text: unit, color: '#9ca3af' },
+                        beginAtZero: true,
+                        grid: { color: 'rgba(75, 85, 99, 0.2)' },
+                        ticks: { color: '#d1d5db' },
+                    }
+                }
+            });
+
+            // 1. Voltage Chart (V)
+            voltageChart = new Chart(document.getElementById('voltageChart'), {
+                type: 'line',
+                data: {
+                    labels: chartDataHistory.labels,
+                    datasets: [
+                        { label: 'Capacitor Voltage', data: chartDataHistory.capacitorVoltage, borderColor: '#3b82f6', tension: 0.4 },
+                        { label: 'MPPT Voltage', data: chartDataHistory.mpptVoltage, borderColor: '#f97316', tension: 0.4 },
+                        { label: 'Solar Panel Voltage', data: chartDataHistory.solarPanelVoltage, borderColor: '#22c55e', tension: 0.4 },
+                    ]
+                },
+                options: chartOptions('Voltage (V)', 'Volts (V)')
+            });
+
+            // 2. Current Chart (mA)
+            currentChart = new Chart(document.getElementById('currentChart'), {
+                type: 'line',
+                data: {
+                    labels: chartDataHistory.labels,
+                    datasets: [
+                        { label: 'Capacitor Current', data: chartDataHistory.capacitorCurrent, borderColor: '#c084fc', tension: 0.4 },
+                        { label: 'MPPT Current', data: chartDataHistory.mpptCurrent, borderColor: '#fbbf24', tension: 0.4 },
+                        { label: 'Solar Panel Current', data: chartDataHistory.solarPanelCurrent, borderColor: '#ef4444', tension: 0.4 },
+                    ]
+                },
+                options: chartOptions('Current (mA)', 'milliAmperes (mA)')
+            });
+
+            // 3. Power Chart (mW) - Calculated Data
+            powerChart = new Chart(document.getElementById('powerChart'), {
+                type: 'line',
+                data: {
+                    labels: chartDataHistory.labels,
+                    datasets: [
+                        { label: 'Solar Panel Power', data: chartDataHistory.solarPanelPower, borderColor: '#f472b6', tension: 0.4 },
+                        { label: 'Capacitor Power', data: chartDataHistory.capacitorPower, borderColor: '#10b981', tension: 0.4 },
+                    ]
+                },
+                options: chartOptions('Power (mW)', 'milliWatts (mW)')
+            });
+        }
+
+
+        /**
+         * Pushes new data to the history and updates all charts.
+         * @param {object} data The current sensor data object.
+         */
+        function updateCharts(data) {
+            const now = new Date();
+            const timeLabel = now.toLocaleTimeString();
+
+            // 1. Add time label (and manage history length)
+            chartDataHistory.labels.push(timeLabel);
+            if (chartDataHistory.labels.length > CHART_MAX_POINTS) {
+                chartDataHistory.labels.shift();
             }
             
-            return { title, unit, icon };
+            // 2. Add raw voltage and current data to history
+            const voltageKeys = ['Capacitor Voltage', 'MPPT Voltage', 'Solar Panel Voltage'];
+            const currentKeys = ['Capacitor Current', 'MPPT Current', 'Solar Panel Current'];
+            
+            voltageKeys.forEach(key => {
+                const chartKey = getFieldInfo(key).chartKey;
+                const value = parseFloat(data[key] || 0);
+                chartDataHistory[chartKey].push(value);
+                if (chartDataHistory[chartKey].length > CHART_MAX_POINTS) {
+                    chartDataHistory[chartKey].shift();
+                }
+            });
+
+            currentKeys.forEach(key => {
+                const chartKey = getFieldInfo(key).chartKey;
+                // We store current in mA for the chart to be consistent
+                const value_A = parseFloat(data[key] || 0); 
+                chartDataHistory[chartKey].push(value_A * 1000); // Convert A to mA
+                if (chartDataHistory[chartKey].length > CHART_MAX_POINTS) {
+                    chartDataHistory[chartKey].shift();
+                }
+            });
+
+            // 3. Calculate and add Power data to history (Power = V * I)
+            const solarPanelPower_mW = (parseFloat(data['Solar Panel Voltage'] || 0) * parseFloat(data['Solar Panel Current'] || 0)) * 1000;
+            const capacitorPower_mW = (parseFloat(data['Capacitor Voltage'] || 0) * parseFloat(data['Capacitor Current'] || 0)) * 1000;
+
+            chartDataHistory.solarPanelPower.push(solarPanelPower_mW);
+            chartDataHistory.capacitorPower.push(capacitorPower_mW);
+
+            if (chartDataHistory.solarPanelPower.length > CHART_MAX_POINTS) chartDataHistory.solarPanelPower.shift();
+            if (chartDataHistory.capacitorPower.length > CHART_MAX_POINTS) chartDataHistory.capacitorPower.shift();
+
+
+            // 4. Update the charts
+            voltageChart.update('none'); // 'none' skips animation for faster updates
+            currentChart.update('none');
+            powerChart.update('none');
         }
+
+
+        // --- Data Rendering Function ---
 
         /**
          * Renders the data grid based on the snapshot.
          * @param {object} data The sensor data object.
          */
         function renderData(data) {
-            dataGrid.innerHTML = ''; // Clear previous content
+            
+            if (document.getElementById('loading-spinner')) {
+                dataGrid.innerHTML = ''; // Clear spinner only if it exists
+            }
 
             if (!data || Object.keys(data).length === 0) {
-                dataGrid.innerHTML = `<p class="md:col-span-2 text-center text-gray-500 py-10">No data found at '${DATA_PATH}'. Check ESP32 connection and Firebase path.</p>`;
+                dataGrid.innerHTML = `<p class="md:col-span-3 text-center text-gray-500 py-10">No data found at '${DATA_PATH}'. Check ESP32 connection and Firebase path.</p>`;
                 return;
             }
 
+            // Create/Update cards for each data point
             Object.entries(data).forEach(([key, value]) => {
-                const id = key.replace(/\s+/g, '-').toLowerCase(); // Create a safe ID
+                const id = key.replace(/\s+/g, '-').toLowerCase(); 
                 const { title, unit, icon } = getFieldInfo(key);
+                let displayValue = value !== null ? value : 'N/A';
 
-                // Create or find existing card element
+                // Convert Amps to milliAmps for display
+                if (unit === 'mA' && !isNaN(parseFloat(displayValue))) {
+                    displayValue = (parseFloat(displayValue) * 1000).toFixed(2);
+                } else if (!isNaN(parseFloat(displayValue))) {
+                    displayValue = parseFloat(displayValue).toFixed(3); // Keep voltage precision
+                }
+
                 let card = document.getElementById(id);
                 if (!card) {
+                    // Create Card
                     card = document.createElement('div');
                     card.id = id;
                     card.className = 'data-card bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-700 hover:border-indigo-500 transition duration-300';
@@ -134,20 +310,18 @@
                         </div>
                         <p class="text-gray-300 text-sm mb-2">Current Reading</p>
                         <div class="flex items-baseline">
-                            <span class="data-value text-6xl font-extrabold text-white" data-unit="${unit}">${value !== null ? value : 'N/A'}</span>
+                            <span class="data-value text-6xl font-extrabold text-white" data-unit="${unit}">${displayValue}</span>
                             <span class="text-3xl font-light text-indigo-300 ml-2">${unit}</span>
                         </div>
                     `;
                     dataGrid.appendChild(card);
                 } else {
-                    // Update existing card data
+                    // Update Existing Card
                     const valueSpan = card.querySelector('.data-value');
                     const oldValue = valueSpan.textContent;
-                    const newValue = value !== null ? value : 'N/A';
-
-                    if (oldValue !== newValue) {
-                        valueSpan.textContent = newValue;
-                        // Highlight on change
+                    
+                    if (oldValue !== displayValue) {
+                        valueSpan.textContent = displayValue;
                         card.classList.add('highlight');
                         setTimeout(() => card.classList.remove('highlight'), 500);
                     }
@@ -157,9 +331,15 @@
             // Update timestamp
             const now = new Date();
             lastUpdated.textContent = now.toLocaleTimeString() + ' on ' + now.toLocaleDateString();
+
+            // Update Graphs
+            updateCharts(data);
         }
 
-        // --- Real-time Data Listener ---
+        // --- Event Listeners and Initialization ---
+
+        // Initialize Charts when the script runs (before data arrives)
+        initializeCharts();
 
         // Listen for connection status
         db.ref('.info/connected').on('value', (snapshot) => {
@@ -174,9 +354,8 @@
             }
         });
 
-        // Listen for data changes at the 'data_from_esp32' path
+        // Listen for real-time data changes
         dataRef.on('value', (snapshot) => {
-            document.getElementById('loading-spinner')?.remove(); // Hide spinner once data arrives
             connectionStatus.textContent = "Streaming Live";
             connectionStatus.classList.remove('text-yellow-500', 'text-red-500');
             connectionStatus.classList.add('text-green-400');
@@ -186,14 +365,15 @@
                 renderData(data);
             } else {
                 console.warn(`Data snapshot at '${DATA_PATH}' is null.`);
-                dataGrid.innerHTML = `<p class="md:col-span-2 text-center text-gray-500 py-10">No data found at '${DATA_PATH}'. Check ESP32 connection and Firebase path.</p>`;
+                document.getElementById('loading-spinner')?.remove(); 
+                dataGrid.innerHTML = `<p class="md:col-span-3 text-center text-gray-500 py-10">No data found at '${DATA_PATH}'. Check ESP32 connection and Firebase path.</p>`;
             }
         }, (error) => {
             console.error("Firebase Read Failed:", error);
             connectionStatus.textContent = "Error";
             connectionStatus.classList.remove('text-green-400');
             connectionStatus.classList.add('text-red-500');
-            dataGrid.innerHTML = `<p class="md:col-span-2 text-center text-red-500 py-10">ERROR: Could not fetch data. Check API Key and Database URL.</p>`;
+            dataGrid.innerHTML = `<p class="md:col-span-3 text-center text-red-500 py-10">ERROR: Could not fetch data. Check API Key and Database URL.</p>`;
         });
 
     </script>
