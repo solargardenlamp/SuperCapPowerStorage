@@ -323,9 +323,14 @@
 
 
             // 4. Update the charts
-            voltageChart.update('none'); 
-            currentChart.update('none');
-            powerChart.update('none');
+            if (voltageChart && currentChart && powerChart) {
+                voltageChart.update('none'); 
+                currentChart.update('none');
+                powerChart.update('none');
+                console.log(`Charts updated successfully at ${timeLabel}. Data points: ${chartDataHistory.labels.length}`); // DEBUG: Added successful update log
+            } else {
+                console.warn("Chart objects are not fully initialized yet. Skipping update."); // DEBUG: Added warning log
+            }
         }
 
 
