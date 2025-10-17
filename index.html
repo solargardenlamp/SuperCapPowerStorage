@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hello GitHub Pages</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configure Font and Custom Tailwind Colors -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        /* Simple floating animation for the card */
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .float-animation {
+            animation: float 4s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="max-w-md w-full p-6 sm:p-8 bg-white shadow-xl rounded-xl float-animation transition-all duration-300">
+        <!-- Header -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-800 tracking-tight">
+                Welcome to GitHub Pages!
+            </h1>
+        </header>
+        
+        <!-- Content Card -->
+        <div class="text-center p-6 bg-blue-50 rounded-lg border border-blue-200">
+            
+            <svg class="mx-auto h-12 w-12 text-blue-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+            </svg>
+            
+            <p class="text-lg text-gray-700 leading-relaxed mb-4">
+                This is a fully self-contained website, generated from a single file (`index.html`).
+                It's ready to be hosted on your new GitHub Page.
+            </p>
+            
+            <p class="text-sm text-gray-500 italic">
+                The content is styled with Tailwind CSS for a professional, responsive look.
+            </p>
+        </div>
+
+        <!-- Footer / Instructions -->
+        <footer class="mt-8 text-center">
+            <h2 class="text-xl font-semibold text-gray-600 mb-2">Next Steps</h2>
+            <ol class="text-left space-y-2 text-gray-600 list-decimal list-inside">
+                <li>Create a new public repository on GitHub.</li>
+                <li>Add this `index.html` file to the root of that repository.</li>
+                <li>Go to **Settings** > **Pages** and set the source branch to `main` (or `master`).</li>
+                <li>Wait a minute, and your site will be live!</li>
+            </ol>
+        </footer>
+    </div>
+
+</body>
+</html>
