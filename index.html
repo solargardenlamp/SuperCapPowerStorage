@@ -322,14 +322,33 @@
             if (chartDataHistory.mpptPower.length > CHART_MAX_POINTS) chartDataHistory.mpptPower.shift();
 
 
-            // 4. Update the charts
+            // 4. Update the charts - EXPLICITLY RE-ASSIGN ARRAYS BEFORE UPDATE
             if (voltageChart && currentChart && powerChart) {
+                
+                // --- Voltage Chart Re-assignment ---
+                voltageChart.data.labels = chartDataHistory.labels;
+                voltageChart.data.datasets[0].data = chartDataHistory.capacitorVoltage;
+                voltageChart.data.datasets[1].data = chartDataHistory.mpptVoltage;
+                voltageChart.data.datasets[2].data = chartDataHistory.solarPanelVoltage;
                 voltageChart.update('none'); 
+
+                // --- Current Chart Re-assignment ---
+                currentChart.data.labels = chartDataHistory.labels;
+                currentChart.data.datasets[0].data = chartDataHistory.capacitorCurrent;
+                currentChart.data.datasets[1].data = chartDataHistory.mpptCurrent;
+                currentChart.data.datasets[2].data = chartDataHistory.solarPanelCurrent;
                 currentChart.update('none');
+
+                // --- Power Chart Re-assignment ---
+                powerChart.data.labels = chartDataHistory.labels;
+                powerChart.data.datasets[0].data = chartDataHistory.solarPanelPower;
+                powerChart.data.datasets[1].data = chartDataHistory.mpptPower; 
+                powerChart.data.datasets[2].data = chartDataHistory.capacitorPower;
                 powerChart.update('none');
-                console.log(`Charts updated successfully at ${timeLabel}. Data points: ${chartDataHistory.labels.length}`); // DEBUG: Added successful update log
+                
+                console.log(`Charts updated successfully at ${timeLabel}. Data points: ${chartDataHistory.labels.length}`);
             } else {
-                console.warn("Chart objects are not fully initialized yet. Skipping update."); // DEBUG: Added warning log
+                console.warn("Chart objects are not fully initialized yet. Skipping update.");
             }
         }
 
